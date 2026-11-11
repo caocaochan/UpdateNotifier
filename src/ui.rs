@@ -380,7 +380,10 @@ impl App {
                 let right = match (err, &r.state, seen) {
                     (Some(_), _, _) => "⚠ error".to_owned(),
                     (_, None, _) => "…".to_owned(),
-                    (_, Some(_), Some(seen)) => seen.label.clone(),
+                    (_, Some(_), Some(seen)) => match crate::age::since(&seen.at) {
+                        Some(age) => format!("{} · {age}", seen.label),
+                        None => seen.label.clone(),
+                    },
                     (_, Some(_), None) if r.mode == Mode::Commits => "no commits".to_owned(),
                     (_, Some(_), None) => "no releases".to_owned(),
                 };

@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod age;
 mod auth;
 mod config;
 mod dialog;
