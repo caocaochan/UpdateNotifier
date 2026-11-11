@@ -516,8 +516,22 @@ impl App {
         move |f| validate_repo(&shared, &client, f, adding)
     }
 
+    fn branch_fetcher(&self) -> dialog::BranchFetcher {
+        let (shared, client) = (self.shared.clone(), self.client.clone());
+        Arc::new(move |name: &str| {
+            let token = lock(&shared).token.clone();
+            let token = token.as_deref();
+            let info = client.repo_info(token, name).map_err(|e| match e {
+                ApiError::NotFound => "repository not found".to_owned(),
+                e => e.to_string(),
+            })?;
+            let list = client.branches(token, &info.full_name, &info.default_branch).map_err(|e| e.to_string())?;
+            Ok((info.default_branch, list))
+        })
+    }
+
     fn add_repo(&self) {
-        let Some(f) = dialog::repo_dialog(None, self.validator(true)) else { return };
+        let Some(f) = dialog::repo_dialog(None, self.branch_fetcher(), self.validator(true)) else { return };
         {
             let mut s = lock(&self.shared);
             if s.config.find(&f.repo).is_some() {
@@ -537,7 +551,7 @@ impl App {
             let r = &s.config.repos[i];
             RepoForm { repo: r.repo.clone(), mode: r.mode, branch: r.branch.clone() }
         };
-        let Some(f) = dialog::repo_dialog(Some(&initial), self.validator(false)) else { return };
+        let Some(f) = dialog::repo_dialog(Some(&initial), self.branch_fetcher(), self.validator(false)) else { return };
         let mut s = lock(&self.shared);
         let Some(i) = s.config.find(name) else { return };
         let r = &mut s.config.repos[i];

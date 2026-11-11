@@ -165,6 +165,26 @@ impl Client {
         }
     }
 
+    /// Branch names, default branch first. Capped at `MAX_BRANCH_PAGES` pages of 100
+    /// (each page is one request); the dialog still accepts typed names beyond that.
+    pub fn branches(&self, token: Option<&str>, repo: &str, default: &str) -> Result<Vec<String>, ApiError> {
+        const MAX_BRANCH_PAGES: u32 = 3;
+        #[derive(Deserialize)]
+        struct Branch {
+            name: String,
+        }
+        let mut names = vec![default.to_owned()];
+        for page in 1..=MAX_BRANCH_PAGES {
+            let list: Vec<Branch> = self.get_fresh(token, &format!("/repos/{repo}/branches?per_page=100&page={page}"))?;
+            let n = list.len();
+            names.extend(list.into_iter().map(|b| b.name).filter(|b| b != default));
+            if n < 100 {
+                break;
+            }
+        }
+        Ok(names)
+    }
+
     /// Verifies a token. `/rate_limit` does not count against the rate limit.
     pub fn verify_token(&self, token: &str) -> Result<(), ApiError> {
         self.get_fresh::<serde_json::Value>(Some(token), "/rate_limit").map(|_| ())

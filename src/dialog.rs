@@ -2,10 +2,12 @@
 //! Only one dialog can be open at a time.
 
 use crate::config::Mode;
+use crate::github;
 use crate::win::{self, wide};
 use std::cell::{Cell, RefCell};
 use std::ptr::{null, null_mut};
 use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -210,14 +212,31 @@ pub struct RepoForm {
     pub branch: Option<String>,
 }
 
+/// Loads the branch list for "owner/name": `(default branch, all branches)`.
+/// Runs on a background thread.
+pub type BranchFetcher = Arc<dyn Fn(&str) -> Result<(String, Vec<String>), String> + Send + Sync>;
+type BranchSlot = Arc<Mutex<Option<(String, Result<(String, Vec<String>), String>)>>>;
+
+/// Synthetic WM_COMMAND id posted by the branch-loading thread.
+const ID_BRANCHES_READY: u16 = 200;
+
+fn set_combo_cue(combo: HWND, text: &str) {
+    let t = wide(text);
+    unsafe { SendMessageW(combo, CB_SETCUEBANNER, 0, t.as_ptr() as isize) };
+}
+
 /// Add (initial = None) or edit a repository. `validate` may hit the network
 /// and returns the canonical form to store, or an error message to show.
-pub fn repo_dialog(initial: Option<&RepoForm>, mut validate: impl FnMut(&RepoForm) -> Result<RepoForm, String> + 'static) -> Option<RepoForm> {
+pub fn repo_dialog(
+    initial: Option<&RepoForm>,
+    fetch_branches: BranchFetcher,
+    mut validate: impl FnMut(&RepoForm) -> Result<RepoForm, String> + 'static,
+) -> Option<RepoForm> {
     if active().is_some() {
         return None;
     }
     let editing = initial.is_some();
-    let b = Builder::new(if editing { "Edit repository" } else { "Add repository" }, 380, 214);
+    let b = Builder::new(if editing { "Edit repository" } else { "Add repository" }, 380, 248);
 
     b.label("Repository (owner/name or GitHub URL):", 14, 14, 352, 18);
     let repo = b.edit(initial.map_or("", |f| f.repo.as_str()), if editing { ES_READONLY as u32 } else { 0 }, 14, 34, 352, 101);
@@ -225,21 +244,28 @@ pub fn repo_dialog(initial: Option<&RepoForm>, mut validate: impl FnMut(&RepoFor
     b.label("Notify me about:", 14, 70, 352, 18);
     let r_stable = b.button("Stable releases", BS_AUTORADIOBUTTON | WS_GROUP as i32, 24, 90, 330, 102);
     let r_pre = b.button("All releases, including pre-releases", BS_AUTORADIOBUTTON, 24, 114, 330, 103);
-    let r_commits = b.button("New commits on branch:", BS_AUTORADIOBUTTON, 24, 138, 170, 104);
+    let r_commits = b.button("New commits on branch:", BS_AUTORADIOBUTTON, 24, 138, 330, 104);
+    // Editable drop-down: pick from the loaded list or type any branch name.
+    // For a combo box the height includes the drop-down list.
     let branch = b.ctl(
-        "EDIT",
-        initial.and_then(|f| f.branch.as_deref()).unwrap_or(""),
-        WS_TABSTOP | WS_GROUP | ES_AUTOHSCROLL as u32,
-        WS_EX_CLIENTEDGE,
-        196,
-        137,
-        170,
-        23,
+        "COMBOBOX",
+        "",
+        WS_TABSTOP | WS_GROUP | WS_VSCROLL | (CBS_DROPDOWN | CBS_AUTOHSCROLL) as u32,
+        0,
+        42,
+        162,
+        324,
+        320,
         105,
     );
-    set_cue(branch, "default branch");
-    let ok = b.button(if editing { "Save" } else { "Add" }, BS_DEFPUSHBUTTON | WS_GROUP as i32, 200, 176, 80, ID_OK);
-    b.button("Cancel", BS_PUSHBUTTON, 286, 176, 80, ID_CANCEL);
+    unsafe {
+        let t = wide(initial.and_then(|f| f.branch.as_deref()).unwrap_or(""));
+        SetWindowTextW(branch, t.as_ptr());
+        SendMessageW(branch, CB_SETMINVISIBLE, 15, 0);
+    }
+    set_combo_cue(branch, "default branch");
+    b.button(if editing { "Save" } else { "Add" }, BS_DEFPUSHBUTTON | WS_GROUP as i32, 200, 210, 80, ID_OK);
+    b.button("Cancel", BS_PUSHBUTTON, 286, 210, 80, ID_CANCEL);
 
     let mode = initial.map_or(Mode::Stable, |f| f.mode);
     let radio = match mode {
@@ -250,17 +276,77 @@ pub fn repo_dialog(initial: Option<&RepoForm>, mut validate: impl FnMut(&RepoFor
     unsafe {
         SendMessageW(radio, BM_SETCHECK, BST_CHECKED as usize, 0);
         EnableWindow(branch, (mode == Mode::Commits) as i32);
+        if mode == Mode::Commits {
+            // Same path as clicking the radio: starts loading branches once the loop runs.
+            PostMessageW(b.hwnd, WM_COMMAND, 104 | ((BN_CLICKED as usize) << 16), 0);
+        }
     }
-    let _ = ok;
 
     let result = Rc::new(RefCell::new(None));
     let out = result.clone();
     let focus = if editing { radio } else { repo };
+    let slot: BranchSlot = Arc::default();
+    // Lower-cased repo whose branches are loaded or loading.
+    let mut loaded_for: Option<String> = None;
+
+    let maybe_load = move |hwnd: HWND, loaded_for: &mut Option<String>, slot: &BranchSlot| {
+        if !checked(r_commits) {
+            return;
+        }
+        let Some(name) = github::parse_repo(&win::window_text(repo)) else { return };
+        if loaded_for.as_deref() == Some(name.to_ascii_lowercase().as_str()) {
+            return;
+        }
+        *loaded_for = Some(name.to_ascii_lowercase());
+        set_combo_cue(branch, "loading branches…");
+        let (fetch, slot, h) = (fetch_branches.clone(), slot.clone(), hwnd as isize);
+        std::thread::spawn(move || {
+            let res = fetch(&name);
+            *slot.lock().unwrap_or_else(|p| p.into_inner()) = Some((name, res));
+            // If the dialog is gone this simply fails.
+            unsafe { PostMessageW(h as HWND, WM_COMMAND, ID_BRANCHES_READY as usize, 0) };
+        });
+    };
+
     b.run(
         focus,
         Box::new(move |hwnd, id, code| match id {
             102..=104 if code == BN_CLICKED as u16 => {
                 unsafe { EnableWindow(branch, checked(r_commits) as i32) };
+                maybe_load(hwnd, &mut loaded_for, &slot);
+                false
+            }
+            101 if code == EN_KILLFOCUS as u16 => {
+                maybe_load(hwnd, &mut loaded_for, &slot);
+                false
+            }
+            105 if code == CBN_DROPDOWN as u16 => {
+                maybe_load(hwnd, &mut loaded_for, &slot);
+                false
+            }
+            ID_BRANCHES_READY => {
+                let Some((name, res)) = slot.lock().unwrap_or_else(|p| p.into_inner()).take() else { return false };
+                // Ignore results for a repo the user has since changed away from.
+                if loaded_for.as_deref() != Some(name.to_ascii_lowercase().as_str()) {
+                    return false;
+                }
+                match res {
+                    Ok((default, list)) => unsafe {
+                        let text = wide(&win::window_text(branch));
+                        SendMessageW(branch, CB_RESETCONTENT, 0, 0);
+                        for name in &list {
+                            let w = wide(name);
+                            SendMessageW(branch, CB_ADDSTRING, 0, w.as_ptr() as isize);
+                        }
+                        SetWindowTextW(branch, text.as_ptr()); // keep what the user typed
+                        set_combo_cue(branch, &format!("default branch ({default})"));
+                    },
+                    Err(e) => {
+                        loaded_for = None; // allow a retry
+                        unsafe { SendMessageW(branch, CB_RESETCONTENT, 0, 0) };
+                        set_combo_cue(branch, &format!("couldn't load branches: {e}"));
+                    }
+                }
                 false
             }
             ID_OK => {

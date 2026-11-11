@@ -3,7 +3,7 @@
 A small Windows system-tray app that notifies you when GitHub repositories get a new release or new commits.
 
 - Per repository, choose what to watch: **stable releases**, **all releases including pre-releases**, or **new commits on a branch**.
-- Add, edit and remove repositories from the tray menu. Paste `owner/name` or any GitHub URL.
+- Add, edit and remove repositories from the tray menu. Paste `owner/name` or any GitHub URL. For commit watching, branches load into a drop-down (default branch first); you can also type any branch name.
 - Native Windows notifications; clicking one opens the release or compare page. Unseen updates stay in the menu and badge the tray icon until opened or dismissed.
 - The first check of a repo only records a baseline, so you are never notified about things that already existed.
 - Configurable check interval (15 min – 12 h), "Check now", start with Windows.
