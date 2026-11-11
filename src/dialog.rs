@@ -1,6 +1,7 @@
 //! Minimal modal Win32 dialogs built from plain windows (no .rc templates).
 //! Only one dialog can be open at a time.
 
+use crate::auth::Source;
 use crate::config::Mode;
 use crate::github;
 use crate::win::{self, wide};
@@ -381,28 +382,37 @@ pub enum TokenAction {
     Remove,
 }
 
-pub fn token_dialog(has_token: bool, mut validate: impl FnMut(&str) -> Result<(), String> + 'static) -> Option<TokenAction> {
+pub fn token_dialog(source: Option<Source>, mut validate: impl FnMut(&str) -> Result<(), String> + 'static) -> Option<TokenAction> {
     if active().is_some() {
         return None;
     }
-    let b = Builder::new("GitHub token", 400, 190);
+    let status = match source {
+        Some(Source::Saved) => "Using the token saved here.",
+        Some(Source::Env) => "Using the GITHUB_TOKEN environment variable.",
+        Some(Source::Gh) => "Using your GitHub CLI (gh) login.",
+        Some(Source::Git) => "Using your Git credentials for github.com.",
+        None => "No token: GitHub allows 60 requests/hour, one per repository per check.",
+    };
+    let b = Builder::new("GitHub token", 400, 214);
+    b.label(status, 14, 12, 372, 20);
     b.label(
-        "Without a token GitHub allows 60 requests/hour, and every check costs one request \
-         per repository. With one, the limit is 5,000/hour and unchanged repos cost nothing.\n\n\
-         A fine-grained token with no permissions is enough for public repos. \
-         It is stored in Windows Credential Manager.",
+        "If you're signed in to the GitHub CLI (gh) or Git Credential Manager, that login \
+         is used automatically. Save a token here only to override it; it is stored in \
+         Windows Credential Manager. A fine-grained token with no permissions is enough \
+         for public repos.",
         14,
-        12,
+        40,
         372,
-        86,
+        82,
     );
-    let edit = b.edit("", ES_PASSWORD as u32, 14, 104, 372, 101);
-    set_cue(edit, if has_token { "(token saved, type to replace)" } else { "github_pat_…" });
-    b.button("Create token…", BS_PUSHBUTTON, 14, 148, 100, 110);
-    let remove = b.button("Remove", BS_PUSHBUTTON, 120, 148, 80, 111);
-    unsafe { EnableWindow(remove, has_token as i32) };
-    b.button("Save", BS_DEFPUSHBUTTON, 220, 148, 80, ID_OK);
-    b.button("Cancel", BS_PUSHBUTTON, 306, 148, 80, ID_CANCEL);
+    let saved = source == Some(Source::Saved);
+    let edit = b.edit("", ES_PASSWORD as u32, 14, 128, 372, 101);
+    set_cue(edit, if saved { "(token saved, type to replace)" } else { "github_pat_…" });
+    b.button("Create token…", BS_PUSHBUTTON, 14, 172, 100, 110);
+    let remove = b.button("Remove", BS_PUSHBUTTON, 120, 172, 80, 111);
+    unsafe { EnableWindow(remove, saved as i32) };
+    b.button("Save", BS_DEFPUSHBUTTON, 220, 172, 80, ID_OK);
+    b.button("Cancel", BS_PUSHBUTTON, 306, 172, 80, ID_CANCEL);
 
     let result = Rc::new(RefCell::new(None));
     let out = result.clone();

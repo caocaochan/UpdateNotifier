@@ -1,5 +1,6 @@
 #![windows_subsystem = "windows"]
 
+mod auth;
 mod config;
 mod dialog;
 mod github;
@@ -27,7 +28,7 @@ fn main() {
     }
 
     let (config, warning) = config::load();
-    let token = win::token_read().or_else(|| std::env::var("GITHUB_TOKEN").ok().filter(|t| !t.trim().is_empty()));
-    let shared = Arc::new(Mutex::new(worker::Shared::new(config, token)));
+    // gh/git lookups happen on the worker's first check (5 s after start), not here.
+    let shared = Arc::new(Mutex::new(worker::Shared::new(config, auth::resolve_fast())));
     ui::run(shared, warning);
 }

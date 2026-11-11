@@ -1,3 +1,4 @@
+use crate::auth;
 use crate::config::{Config, Update};
 use crate::github::{self, ApiError, Client};
 use std::collections::HashMap;
@@ -9,6 +10,7 @@ use std::time::{Duration, SystemTime};
 pub struct Shared {
     pub config: Config,
     pub token: Option<String>,
+    pub token_source: Option<auth::Source>,
     /// Lower-cased repo -> last error message.
     pub errors: HashMap<String, String>,
     pub last_check: Option<SystemTime>,
@@ -20,10 +22,12 @@ pub struct Shared {
 }
 
 impl Shared {
-    pub fn new(config: Config, token: Option<String>) -> Self {
+    pub fn new(config: Config, token: Option<(String, auth::Source)>) -> Self {
+        let (token, token_source) = token.map_or((None, None), |(t, s)| (Some(t), Some(s)));
         Self {
             config,
             token,
+            token_source,
             errors: HashMap::new(),
             last_check: None,
             checking: false,
@@ -109,8 +113,12 @@ pub fn spawn(shared: Arc<Mutex<Shared>>, client: Client, notify: impl Fn() + Sen
 
 /// Checks every repo once. Returns a forced next-check time when rate limited.
 fn run_cycle(shared: &Mutex<Shared>, client: &Client) -> Option<SystemTime> {
+    // Re-resolved every cycle (outside the lock: may run gh/git), so logging in to gh
+    // or saving/removing a token takes effect without a restart.
+    let resolved = auth::resolve();
     let (repos, token) = {
         let mut s = lock(shared);
+        (s.token, s.token_source) = resolved.map_or((None, None), |(t, src)| (Some(t), Some(src)));
         if let Some(until) = s.rate_limited_until {
             if until > SystemTime::now() {
                 return Some(until + Duration::from_secs(5));

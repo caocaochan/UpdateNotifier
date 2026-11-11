@@ -20,11 +20,18 @@ cargo build --release
 
 The binary is `target\release\update-notifier.exe`.
 
-## GitHub token (recommended)
+## GitHub authentication
 
 Without a token GitHub allows 60 API requests per hour, and every check costs one request per repository. With a token the limit is 5,000/hour, and repositories that haven't changed cost nothing ([conditional requests](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests-if-appropriate) returning `304` are free only when authenticated).
 
-Set it from the tray menu (**GitHub token…**). A fine-grained token with no extra permissions is enough for public repositories. It is stored in Windows Credential Manager. The `GITHUB_TOKEN` environment variable is used as a fallback.
+If you are already signed in, nothing needs to be configured. The token is looked up in this order, re-checked before every round of checks:
+
+1. A token saved from the tray menu (**GitHub token…**), stored in Windows Credential Manager.
+2. The `GITHUB_TOKEN` or `GH_TOKEN` environment variable.
+3. The GitHub CLI login (`gh auth token`).
+4. Git's credential helpers for github.com (`git credential fill`, e.g. Git Credential Manager).
+
+The `gh` and `git` lookups run without a console window and can never prompt: Git Credential Manager is run with `credential.interactive=false`, and Git with an empty `GIT_ASKPASS` and `GIT_TERMINAL_PROMPT=0`. The app only makes read-only `GET` requests, but note that a `gh`/Git login token usually has broad scopes; save a fine-grained token with no extra permissions if you prefer a narrower one.
 
 ## Files
 

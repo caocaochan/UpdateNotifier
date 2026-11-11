@@ -404,7 +404,7 @@ impl App {
             }
             let w = wide("Check every");
             AppendMenuW(m, MF_POPUP, iv as usize, w.as_ptr());
-            add(m, MF_STRING, ID_TOKEN, &format!("GitHub token…\t{}", if s.token.is_some() { "set" } else { "not set" }));
+            add(m, MF_STRING, ID_TOKEN, &format!("GitHub token…\t{}", s.token_source.map_or("not set", |src| src.label())));
             add(m, MF_STRING | if win::startup_enabled() { MF_CHECKED } else { 0 }, ID_STARTUP, "Start with Windows");
             add(m, MF_STRING, ID_CONFIG, "Open config folder");
             sep(m);
@@ -572,9 +572,9 @@ impl App {
     }
 
     fn edit_token(&self) {
-        let has = lock(&self.shared).token.is_some();
+        let source = lock(&self.shared).token_source;
         let client = self.client.clone();
-        let res = dialog::token_dialog(has, move |t| {
+        let res = dialog::token_dialog(source, move |t| {
             client.verify_token(t).map_err(|e| match e {
                 ApiError::Unauthorized => "GitHub rejected this token.".to_owned(),
                 e => format!("Could not verify the token: {e}"),
@@ -585,12 +585,18 @@ impl App {
                 if !win::token_write(&t) {
                     win::message_box(null_mut(), "Could not save the token to Credential Manager; it will be used until exit.", MB_ICONWARNING);
                 }
-                lock(&self.shared).token = Some(t);
+                let mut s = lock(&self.shared);
+                (s.token, s.token_source) = (Some(t), Some(crate::auth::Source::Saved));
+                drop(s);
                 let _ = self.tx.send(Cmd::CheckNow);
             }
             Some(TokenAction::Remove) => {
                 win::token_delete();
-                lock(&self.shared).token = None;
+                let mut s = lock(&self.shared);
+                (s.token, s.token_source) = (None, None);
+                drop(s);
+                // The check re-resolves and picks up a gh/git login if there is one.
+                let _ = self.tx.send(Cmd::CheckNow);
             }
             None => {}
         }
