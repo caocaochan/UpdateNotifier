@@ -1,4 +1,4 @@
-//! Compact relative ages for the menu: "now", "3m", "4h", "5d", "2w", "11mo", "1y".
+//! Compact relative ages for the menu: "now", "3m", "3h 20m", "5d 4h", "1w 6d", "2mo 1w", "1y 3mo".
 //! Months are "mo" so they can't be confused with minutes.
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -25,18 +25,22 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
     era * 146_097 + doe - 719_468
 }
 
+/// Largest unit plus the next one down, both rounded down: "1w 6d", "3h 20m",
+/// "2mo 1w", "1y 3mo". The second part is dropped when it is zero.
+/// Months are 30 days and years 365 days.
 pub fn short(secs: i64) -> String {
     let mins = secs / 60;
     let hours = mins / 60;
     let days = hours / 24;
+    let two = |a: i64, ua: &str, b: i64, ub: &str| if b > 0 { format!("{a}{ua} {b}{ub}") } else { format!("{a}{ua}") };
     match () {
         _ if mins < 1 => "now".into(),
         _ if hours < 1 => format!("{mins}m"),
-        _ if days < 1 => format!("{hours}h"),
-        _ if days < 7 => format!("{days}d"),
-        _ if days < 30 => format!("{}w", days / 7),
-        _ if days < 365 => format!("{}mo", (days / 30).clamp(1, 11)),
-        _ => format!("{}y", days / 365),
+        _ if days < 1 => two(hours, "h", mins % 60, "m"),
+        _ if days < 7 => two(days, "d", hours % 24, "h"),
+        _ if days < 30 => two(days / 7, "w", days % 7, "d"),
+        _ if days < 365 => two(days / 30, "mo", days % 30 / 7, "w"),
+        _ => two(days / 365, "y", days % 365 / 30, "mo"),
     }
 }
 
@@ -67,12 +71,15 @@ mod tests {
         assert_eq!(short(3 * m), "3m");
         assert_eq!(short(59 * m), "59m");
         assert_eq!(short(4 * h), "4h");
-        assert_eq!(short(6 * d), "6d");
+        assert_eq!(short(3 * h + 20 * m), "3h 20m");
+        assert_eq!(short(6 * d + 5 * h), "6d 5h");
+        assert_eq!(short(13 * d + 7 * h), "1w 6d"); // the libron case
         assert_eq!(short(14 * d), "2w");
-        assert_eq!(short(29 * d), "4w");
+        assert_eq!(short(29 * d), "4w 1d");
         assert_eq!(short(30 * d), "1mo");
-        assert_eq!(short(364 * d), "11mo");
+        assert_eq!(short(59 * d), "1mo 4w");
+        assert_eq!(short(364 * d), "12mo"); // 30-day months: 360-364 days
         assert_eq!(short(365 * d), "1y");
-        assert_eq!(short(800 * d), "2y");
+        assert_eq!(short(800 * d), "2y 2mo");
     }
 }
