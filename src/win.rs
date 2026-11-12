@@ -32,7 +32,16 @@ pub fn copy_to(dst: &mut [u16], s: &str) {
 
 pub fn open_url(url: &str) {
     let (op, url) = (wide("open"), wide(url));
-    unsafe { ShellExecuteW(null_mut(), op.as_ptr(), url.as_ptr(), null(), null(), SW_SHOWNORMAL) };
+    unsafe {
+        ShellExecuteW(
+            null_mut(),
+            op.as_ptr(),
+            url.as_ptr(),
+            null(),
+            null(),
+            SW_SHOWNORMAL,
+        )
+    };
 }
 
 pub fn message_box(owner: HWND, text: &str, flags: u32) -> i32 {
@@ -53,11 +62,16 @@ pub fn window_text(hwnd: HWND) -> String {
 pub fn local_hhmm(t: SystemTime) -> String {
     let d = t.duration_since(UNIX_EPOCH).unwrap_or_default();
     let ticks = (d.as_secs() + 11_644_473_600) * 10_000_000 + u64::from(d.subsec_nanos() / 100);
-    let ft = FILETIME { dwLowDateTime: ticks as u32, dwHighDateTime: (ticks >> 32) as u32 };
+    let ft = FILETIME {
+        dwLowDateTime: ticks as u32,
+        dwHighDateTime: (ticks >> 32) as u32,
+    };
     unsafe {
         let mut utc: SYSTEMTIME = std::mem::zeroed();
         let mut local: SYSTEMTIME = std::mem::zeroed();
-        if FileTimeToSystemTime(&ft, &mut utc) == 0 || SystemTimeToTzSpecificLocalTime(null(), &utc, &mut local) == 0 {
+        if FileTimeToSystemTime(&ft, &mut utc) == 0
+            || SystemTimeToTzSpecificLocalTime(null(), &utc, &mut local) == 0
+        {
             return "?".into();
         }
         format!("{:02}:{:02}", local.wHour, local.wMinute)
@@ -79,7 +93,15 @@ pub fn startup_enabled() -> bool {
     let mut buf = [0u16; 1024];
     let mut size = std::mem::size_of_val(&buf) as u32;
     let rc = unsafe {
-        RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), val.as_ptr(), RRF_RT_REG_SZ, null_mut(), buf.as_mut_ptr().cast(), &mut size)
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key.as_ptr(),
+            val.as_ptr(),
+            RRF_RT_REG_SZ,
+            null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut size,
+        )
     };
     if rc != ERROR_SUCCESS {
         return false;
@@ -94,8 +116,14 @@ pub fn set_startup(on: bool) -> bool {
     unsafe {
         if on {
             let data = wide(&exe_command());
-            RegSetKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), val.as_ptr(), REG_SZ, data.as_ptr().cast(), (data.len() * 2) as u32)
-                == ERROR_SUCCESS
+            RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                key.as_ptr(),
+                val.as_ptr(),
+                REG_SZ,
+                data.as_ptr().cast(),
+                (data.len() * 2) as u32,
+            ) == ERROR_SUCCESS
         } else {
             let rc = RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), val.as_ptr());
             rc == ERROR_SUCCESS || rc == ERROR_FILE_NOT_FOUND
@@ -116,7 +144,9 @@ pub fn token_read() -> Option<String> {
         }
         let c = &*p;
         let blob = std::slice::from_raw_parts(c.CredentialBlob, c.CredentialBlobSize as usize);
-        let s = String::from_utf8(blob.to_vec()).ok().filter(|s| !s.is_empty());
+        let s = String::from_utf8(blob.to_vec())
+            .ok()
+            .filter(|s| !s.is_empty());
         CredFree(p.cast());
         s
     }

@@ -91,7 +91,12 @@ impl Builder {
             let scale = GetDpiForSystem() as f32 / 96.0;
             let style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
             let ex = WS_EX_DLGMODALFRAME;
-            let mut rc = RECT { left: 0, top: 0, right: (w as f32 * scale) as i32, bottom: (h as f32 * scale) as i32 };
+            let mut rc = RECT {
+                left: 0,
+                top: 0,
+                right: (w as f32 * scale) as i32,
+                bottom: (h as f32 * scale) as i32,
+            };
             AdjustWindowRectEx(&mut rc, style, 0, ex);
             let (ww, wh) = (rc.right - rc.left, rc.bottom - rc.top);
             let mut work: RECT = std::mem::zeroed();
@@ -99,11 +104,29 @@ impl Builder {
             let x = work.left + (work.right - work.left - ww) / 2;
             let y = work.top + (work.bottom - work.top - wh) / 2;
             let t = wide(title);
-            let hwnd = CreateWindowExW(ex, class.as_ptr(), t.as_ptr(), style, x, y, ww, wh, null_mut(), null_mut(), hinst, null());
+            let hwnd = CreateWindowExW(
+                ex,
+                class.as_ptr(),
+                t.as_ptr(),
+                style,
+                x,
+                y,
+                ww,
+                wh,
+                null_mut(),
+                null_mut(),
+                hinst,
+                null(),
+            );
 
             let mut ncm: NONCLIENTMETRICSW = std::mem::zeroed();
             ncm.cbSize = size_of::<NONCLIENTMETRICSW>() as u32;
-            SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize, (&raw mut ncm).cast(), 0);
+            SystemParametersInfoW(
+                SPI_GETNONCLIENTMETRICS,
+                ncm.cbSize,
+                (&raw mut ncm).cast(),
+                0,
+            );
             let font = CreateFontIndirectW(&ncm.lfMessageFont);
             Self { hwnd, font, scale }
         }
@@ -114,7 +137,18 @@ impl Builder {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn ctl(&self, class: &str, text: &str, style: u32, ex: u32, x: i32, y: i32, w: i32, h: i32, id: u16) -> HWND {
+    fn ctl(
+        &self,
+        class: &str,
+        text: &str,
+        style: u32,
+        ex: u32,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        id: u16,
+    ) -> HWND {
         let (c, t) = (wide(class), wide(text));
         unsafe {
             let h = CreateWindowExW(
@@ -141,11 +175,31 @@ impl Builder {
     }
 
     fn edit(&self, text: &str, extra: u32, x: i32, y: i32, w: i32, id: u16) -> HWND {
-        self.ctl("EDIT", text, WS_TABSTOP | ES_AUTOHSCROLL as u32 | extra, WS_EX_CLIENTEDGE, x, y, w, 23, id)
+        self.ctl(
+            "EDIT",
+            text,
+            WS_TABSTOP | ES_AUTOHSCROLL as u32 | extra,
+            WS_EX_CLIENTEDGE,
+            x,
+            y,
+            w,
+            23,
+            id,
+        )
     }
 
     fn button(&self, text: &str, style: i32, x: i32, y: i32, w: i32, id: u16) -> HWND {
-        self.ctl("BUTTON", text, WS_TABSTOP | style as u32, 0, x, y, w, 26, id)
+        self.ctl(
+            "BUTTON",
+            text,
+            WS_TABSTOP | style as u32,
+            0,
+            x,
+            y,
+            w,
+            26,
+            id,
+        )
     }
 
     /// Shows the window and runs a nested message loop until it is destroyed.
@@ -237,15 +291,51 @@ pub fn repo_dialog(
         return None;
     }
     let editing = initial.is_some();
-    let b = Builder::new(if editing { "Edit repository" } else { "Add repository" }, 380, 248);
+    let b = Builder::new(
+        if editing {
+            "Edit repository"
+        } else {
+            "Add repository"
+        },
+        380,
+        248,
+    );
 
     b.label("Repository (owner/name or GitHub URL):", 14, 14, 352, 18);
-    let repo = b.edit(initial.map_or("", |f| f.repo.as_str()), if editing { ES_READONLY as u32 } else { 0 }, 14, 34, 352, 101);
+    let repo = b.edit(
+        initial.map_or("", |f| f.repo.as_str()),
+        if editing { ES_READONLY as u32 } else { 0 },
+        14,
+        34,
+        352,
+        101,
+    );
     set_cue(repo, "e.g. neovim/neovim");
     b.label("Notify me about:", 14, 70, 352, 18);
-    let r_stable = b.button("Stable releases", BS_AUTORADIOBUTTON | WS_GROUP as i32, 24, 90, 330, 102);
-    let r_pre = b.button("All releases, including pre-releases", BS_AUTORADIOBUTTON, 24, 114, 330, 103);
-    let r_commits = b.button("New commits on branch:", BS_AUTORADIOBUTTON, 24, 138, 330, 104);
+    let r_stable = b.button(
+        "Stable releases",
+        BS_AUTORADIOBUTTON | WS_GROUP as i32,
+        24,
+        90,
+        330,
+        102,
+    );
+    let r_pre = b.button(
+        "All releases, including pre-releases",
+        BS_AUTORADIOBUTTON,
+        24,
+        114,
+        330,
+        103,
+    );
+    let r_commits = b.button(
+        "New commits on branch:",
+        BS_AUTORADIOBUTTON,
+        24,
+        138,
+        330,
+        104,
+    );
     // Editable drop-down: pick from the loaded list or type any branch name.
     // For a combo box the height includes the drop-down list.
     let branch = b.ctl(
@@ -265,7 +355,14 @@ pub fn repo_dialog(
         SendMessageW(branch, CB_SETMINVISIBLE, 15, 0);
     }
     set_combo_cue(branch, "default branch");
-    b.button(if editing { "Save" } else { "Add" }, BS_DEFPUSHBUTTON | WS_GROUP as i32, 200, 210, 80, ID_OK);
+    b.button(
+        if editing { "Save" } else { "Add" },
+        BS_DEFPUSHBUTTON | WS_GROUP as i32,
+        200,
+        210,
+        80,
+        ID_OK,
+    );
     b.button("Cancel", BS_PUSHBUTTON, 286, 210, 80, ID_CANCEL);
 
     let mode = initial.map_or(Mode::Stable, |f| f.mode);
@@ -294,7 +391,9 @@ pub fn repo_dialog(
         if !checked(r_commits) {
             return;
         }
-        let Some(name) = github::parse_repo(&win::window_text(repo)) else { return };
+        let Some(name) = github::parse_repo(&win::window_text(repo)) else {
+            return;
+        };
         if loaded_for.as_deref() == Some(name.to_ascii_lowercase().as_str()) {
             return;
         }
@@ -326,7 +425,10 @@ pub fn repo_dialog(
                 false
             }
             ID_BRANCHES_READY => {
-                let Some((name, res)) = slot.lock().unwrap_or_else(|p| p.into_inner()).take() else { return false };
+                let Some((name, res)) = slot.lock().unwrap_or_else(|p| p.into_inner()).take()
+                else {
+                    return false;
+                };
                 // Ignore results for a repo the user has since changed away from.
                 if loaded_for.as_deref() != Some(name.to_ascii_lowercase().as_str()) {
                     return false;
@@ -359,7 +461,11 @@ pub fn repo_dialog(
                     Mode::Stable
                 };
                 let br = win::window_text(branch).trim().to_owned();
-                let form = RepoForm { repo: win::window_text(repo), mode, branch: (!br.is_empty()).then_some(br) };
+                let form = RepoForm {
+                    repo: win::window_text(repo),
+                    mode,
+                    branch: (!br.is_empty()).then_some(br),
+                };
                 match busy(hwnd, || validate(&form)) {
                     Ok(f) => {
                         *out.borrow_mut() = Some(f);
@@ -382,7 +488,10 @@ pub enum TokenAction {
     Remove,
 }
 
-pub fn token_dialog(source: Option<Source>, mut validate: impl FnMut(&str) -> Result<(), String> + 'static) -> Option<TokenAction> {
+pub fn token_dialog(
+    source: Option<Source>,
+    mut validate: impl FnMut(&str) -> Result<(), String> + 'static,
+) -> Option<TokenAction> {
     if active().is_some() {
         return None;
     }
@@ -407,7 +516,14 @@ pub fn token_dialog(source: Option<Source>, mut validate: impl FnMut(&str) -> Re
     );
     let saved = source == Some(Source::Saved);
     let edit = b.edit("", ES_PASSWORD as u32, 14, 128, 372, 101);
-    set_cue(edit, if saved { "(token saved, type to replace)" } else { "github_pat_…" });
+    set_cue(
+        edit,
+        if saved {
+            "(token saved, type to replace)"
+        } else {
+            "github_pat_…"
+        },
+    );
     b.button("Create token…", BS_PUSHBUTTON, 14, 172, 100, 110);
     let remove = b.button("Remove", BS_PUSHBUTTON, 120, 172, 80, 111);
     unsafe { EnableWindow(remove, saved as i32) };

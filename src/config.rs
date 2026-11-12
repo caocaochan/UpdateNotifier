@@ -90,12 +90,18 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self { interval_minutes: default_interval(), repos: Vec::new(), pending: Vec::new() }
+        Self {
+            interval_minutes: default_interval(),
+            repos: Vec::new(),
+            pending: Vec::new(),
+        }
     }
 }
 
 pub fn dir() -> PathBuf {
-    let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let base = std::env::var_os("APPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
     base.join("UpdateNotifier")
 }
 
@@ -110,14 +116,26 @@ pub fn load() -> (Config, Option<String>) {
     let text = match std::fs::read_to_string(&p) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (Config::default(), None),
-        Err(e) => return (Config::default(), Some(format!("Could not read {}: {e}", p.display()))),
+        Err(e) => {
+            return (
+                Config::default(),
+                Some(format!("Could not read {}: {e}", p.display())),
+            );
+        }
     };
     match serde_json::from_str(&text) {
         Ok(c) => (c, None),
         Err(e) => {
             let bad = p.with_extension("json.bad");
             let _ = std::fs::rename(&p, &bad);
-            (Config::default(), Some(format!("{} was invalid ({e}).\nIt was moved to {}.", p.display(), bad.display())))
+            (
+                Config::default(),
+                Some(format!(
+                    "{} was invalid ({e}).\nIt was moved to {}.",
+                    p.display(),
+                    bad.display()
+                )),
+            )
         }
     }
 }
@@ -134,6 +152,8 @@ impl Config {
     }
 
     pub fn find(&self, repo: &str) -> Option<usize> {
-        self.repos.iter().position(|r| r.repo.eq_ignore_ascii_case(repo))
+        self.repos
+            .iter()
+            .position(|r| r.repo.eq_ignore_ascii_case(repo))
     }
 }

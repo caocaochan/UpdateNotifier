@@ -41,17 +41,27 @@ pub fn resolve_fast() -> Option<(String, Source)> {
     }
     ["GITHUB_TOKEN", "GH_TOKEN"]
         .iter()
-        .find_map(|v| std::env::var(v).ok().map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()))
+        .find_map(|v| {
+            std::env::var(v)
+                .ok()
+                .map(|t| t.trim().to_owned())
+                .filter(|t| !t.is_empty())
+        })
         .map(|t| (t, Source::Env))
 }
 
 /// Full lookup including gh and git. Spawns processes: call from the worker thread.
 pub fn resolve() -> Option<(String, Source)> {
-    resolve_fast().or_else(|| from_gh().map(|t| (t, Source::Gh))).or_else(|| from_git().map(|t| (t, Source::Git)))
+    resolve_fast()
+        .or_else(|| from_gh().map(|t| (t, Source::Gh)))
+        .or_else(|| from_git().map(|t| (t, Source::Git)))
 }
 
 fn from_gh() -> Option<String> {
-    let out = run(Command::new("gh").args(["auth", "token", "--hostname", "github.com"]), None)?;
+    let out = run(
+        Command::new("gh").args(["auth", "token", "--hostname", "github.com"]),
+        None,
+    )?;
     Some(out.trim().to_owned()).filter(|t| !t.is_empty())
 }
 
@@ -66,13 +76,20 @@ fn from_git() -> Option<String> {
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never");
     let out = run(&mut cmd, Some("protocol=https\nhost=github.com\n\n"))?;
-    out.lines().find_map(|l| l.strip_prefix("password=")).map(str::to_owned).filter(|t| !t.is_empty())
+    out.lines()
+        .find_map(|l| l.strip_prefix("password="))
+        .map(str::to_owned)
+        .filter(|t| !t.is_empty())
 }
 
 /// Runs a console tool without a window; returns stdout if it exits 0 within the timeout.
 fn run(cmd: &mut Command, stdin: Option<&str>) -> Option<String> {
     cmd.creation_flags(CREATE_NO_WINDOW)
-        .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
+        .stdin(if stdin.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     let mut child = cmd.spawn().ok()?; // not installed -> None

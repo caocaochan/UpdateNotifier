@@ -42,8 +42,14 @@ const A_OPEN: u32 = 4;
 const A_REMOVE: u32 = 5;
 const A_LATEST: u32 = 6;
 
-const INTERVALS: [(u32, &str); 6] =
-    [(15, "15 minutes"), (30, "30 minutes"), (60, "1 hour"), (180, "3 hours"), (360, "6 hours"), (720, "12 hours")];
+const INTERVALS: [(u32, &str); 6] = [
+    (15, "15 minutes"),
+    (30, "30 minutes"),
+    (60, "1 hour"),
+    (180, "3 hours"),
+    (360, "6 hours"),
+    (720, "12 hours"),
+];
 
 enum Balloon {
     None,
@@ -87,7 +93,20 @@ pub fn run(shared: Arc<Mutex<Shared>>, warning: Option<String>) {
         let taskbar_created = RegisterWindowMessageW(wide("TaskbarCreated").as_ptr());
         // A hidden top-level window (not message-only: those miss the TaskbarCreated broadcast).
         let title = wide(APP_NAME);
-        let hwnd = CreateWindowExW(0, class.as_ptr(), title.as_ptr(), WS_OVERLAPPED, 0, 0, 0, 0, null_mut(), null_mut(), hinst, null());
+        let hwnd = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            title.as_ptr(),
+            WS_OVERLAPPED,
+            0,
+            0,
+            0,
+            0,
+            null_mut(),
+            null_mut(),
+            hinst,
+            null(),
+        );
 
         let client = Client::new();
         let hwnd_val = hwnd as isize;
@@ -115,7 +134,11 @@ pub fn run(shared: Arc<Mutex<Shared>>, warning: Option<String>) {
             win::message_box(null_mut(), &w, MB_ICONWARNING);
         }
         if lock(&app.shared).config.repos.is_empty() {
-            app.balloon("Update Notifier is running", "Click the tray icon to add a repository.", Balloon::Menu);
+            app.balloon(
+                "Update Notifier is running",
+                "Click the tray icon to add a repository.",
+                Balloon::Menu,
+            );
         }
         drop(app);
 
@@ -159,7 +182,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 if lp != 0 {
                     let p = lp as *const u16;
                     let len = (0..64).take_while(|&i| *p.add(i) != 0).count();
-                    if String::from_utf16_lossy(std::slice::from_raw_parts(p, len)) == "ImmersiveColorSet" {
+                    if String::from_utf16_lossy(std::slice::from_raw_parts(p, len))
+                        == "ImmersiveColorSet"
+                    {
                         crate::theme::apply();
                     }
                 }
@@ -208,11 +233,21 @@ impl App {
     fn fill_icon_tip(&self, n: &mut NOTIFYICONDATAW) {
         let s = lock(&self.shared);
         let pending = s.config.pending.len();
-        n.hIcon = if pending > 0 { self.icon_badge } else { self.icon };
-        let tip = if pending > 0 {
-            format!("{APP_NAME}\n{}", plural(pending, "new update", "new updates"))
+        n.hIcon = if pending > 0 {
+            self.icon_badge
         } else {
-            format!("{APP_NAME}\nWatching {}", plural(s.config.repos.len(), "repository", "repositories"))
+            self.icon
+        };
+        let tip = if pending > 0 {
+            format!(
+                "{APP_NAME}\n{}",
+                plural(pending, "new update", "new updates")
+            )
+        } else {
+            format!(
+                "{APP_NAME}\nWatching {}",
+                plural(s.config.repos.len(), "repository", "repositories")
+            )
         };
         win::copy_to(&mut n.szTip, &tip);
     }
@@ -252,9 +287,20 @@ impl App {
         let fresh = std::mem::take(&mut lock(&self.shared).fresh);
         match fresh.as_slice() {
             [] => {}
-            [u] => self.balloon(&u.title, &u.body, Balloon::Open { repo: u.repo.clone(), url: u.url.clone() }),
+            [u] => self.balloon(
+                &u.title,
+                &u.body,
+                Balloon::Open {
+                    repo: u.repo.clone(),
+                    url: u.url.clone(),
+                },
+            ),
             many => {
-                let body = many.iter().map(|u| u.title.as_str()).collect::<Vec<_>>().join("\n");
+                let body = many
+                    .iter()
+                    .map(|u| u.title.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 self.balloon(&format!("{} new updates", many.len()), &body, Balloon::Menu);
             }
         }
@@ -296,8 +342,19 @@ impl App {
         let (menu, names, pending) = self.build_menu();
         let cmd = unsafe {
             SetForegroundWindow(self.hwnd);
-            let align = if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 { TPM_RIGHTALIGN } else { TPM_LEFTALIGN };
-            let cmd = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | align, x, y, self.hwnd, null());
+            let align = if GetSystemMetrics(SM_MENUDROPALIGNMENT) != 0 {
+                TPM_RIGHTALIGN
+            } else {
+                TPM_LEFTALIGN
+            };
+            let cmd = TrackPopupMenuEx(
+                menu,
+                TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | align,
+                x,
+                y,
+                self.hwnd,
+                null(),
+            );
             PostMessageW(self.hwnd, WM_NULL, 0, 0); // KB135788: menu closes properly
             DestroyMenu(menu); // also destroys submenus
             cmd as u32
@@ -324,26 +381,55 @@ impl App {
             } else {
                 "not checked yet".to_owned()
             };
-            add(m, MF_STRING | MF_GRAYED, 0, &format!("{APP_NAME} — {status}"));
+            add(
+                m,
+                MF_STRING | MF_GRAYED,
+                0,
+                &format!("{APP_NAME} — {status}"),
+            );
             let per_hour = s.config.repos.len() as u32 * 60 / s.config.interval_minutes.max(1);
             if s.token.is_none() && per_hour > 45 {
-                add(m, MF_STRING | MF_GRAYED, 0, &format!("⚠ ~{per_hour} requests/h, limit without a token is 60"));
+                add(
+                    m,
+                    MF_STRING | MF_GRAYED,
+                    0,
+                    &format!("⚠ ~{per_hour} requests/h, limit without a token is 60"),
+                );
             }
             if let Some(e) = &s.save_error {
                 add(m, MF_STRING | MF_GRAYED, 0, &format!("⚠ {e}"));
             }
 
             // Unseen updates.
-            let pending: Vec<(String, String)> = s.config.pending.iter().map(|p| (p.repo.clone(), p.url.clone())).collect();
+            let pending: Vec<(String, String)> = s
+                .config
+                .pending
+                .iter()
+                .map(|p| (p.repo.clone(), p.url.clone()))
+                .collect();
             if !pending.is_empty() {
                 sep(m);
                 for (i, u) in s.config.pending.iter().enumerate().take(0x100) {
-                    add(m, MF_STRING, ID_PENDING + i as u32, &format!("● {}", esc(&u.title)));
+                    add(
+                        m,
+                        MF_STRING,
+                        ID_PENDING + i as u32,
+                        &format!("● {}", esc(&u.title)),
+                    );
                 }
                 if pending.len() > 1 {
                     add(m, MF_STRING, ID_OPEN_ALL, "Open all");
                 }
-                add(m, MF_STRING, ID_CLEAR, if pending.len() > 1 { "Dismiss all" } else { "Dismiss" });
+                add(
+                    m,
+                    MF_STRING,
+                    ID_CLEAR,
+                    if pending.len() > 1 {
+                        "Dismiss all"
+                    } else {
+                        "Dismiss"
+                    },
+                );
             }
 
             // Repositories.
@@ -359,13 +445,22 @@ impl App {
                 }
                 let seen = r.state.as_ref().and_then(|st| st.seen.as_ref());
                 if let Some(seen) = seen {
-                    let what = if r.mode == Mode::Commits { "latest commit" } else { seen.label.as_str() };
+                    let what = if r.mode == Mode::Commits {
+                        "latest commit"
+                    } else {
+                        seen.label.as_str()
+                    };
                     add(sub, MF_STRING, id(A_LATEST), &format!("Open {}", esc(what)));
                     sep(sub);
                 }
                 add(sub, MF_STRING, id(A_STABLE), "Stable releases");
                 add(sub, MF_STRING, id(A_PRE), "Releases incl. pre-releases");
-                add(sub, MF_STRING, id(A_COMMITS), &format!("Commits on {}", esc(r.branch_label())));
+                add(
+                    sub,
+                    MF_STRING,
+                    id(A_COMMITS),
+                    &format!("Commits on {}", esc(r.branch_label())),
+                );
                 let checked = match r.mode {
                     Mode::Stable => A_STABLE,
                     Mode::Prerelease => A_PRE,
@@ -397,18 +492,47 @@ impl App {
 
             // Settings.
             sep(m);
-            add(m, MF_STRING | if s.checking { MF_GRAYED } else { 0 }, ID_CHECK, "Check now");
+            add(
+                m,
+                MF_STRING | if s.checking { MF_GRAYED } else { 0 },
+                ID_CHECK,
+                "Check now",
+            );
             let iv = CreatePopupMenu();
             for (i, (mins, label)) in INTERVALS.iter().enumerate() {
                 add(iv, MF_STRING, ID_INTERVAL + i as u32, label);
                 if *mins == s.config.interval_minutes {
-                    CheckMenuRadioItem(iv, ID_INTERVAL, ID_INTERVAL + INTERVALS.len() as u32 - 1, ID_INTERVAL + i as u32, MF_BYCOMMAND);
+                    CheckMenuRadioItem(
+                        iv,
+                        ID_INTERVAL,
+                        ID_INTERVAL + INTERVALS.len() as u32 - 1,
+                        ID_INTERVAL + i as u32,
+                        MF_BYCOMMAND,
+                    );
                 }
             }
             let w = wide("Check every");
             AppendMenuW(m, MF_POPUP, iv as usize, w.as_ptr());
-            add(m, MF_STRING, ID_TOKEN, &format!("GitHub token…\t{}", s.token_source.map_or("not set", |src| src.label())));
-            add(m, MF_STRING | if win::startup_enabled() { MF_CHECKED } else { 0 }, ID_STARTUP, "Start with Windows");
+            add(
+                m,
+                MF_STRING,
+                ID_TOKEN,
+                &format!(
+                    "GitHub token…\t{}",
+                    s.token_source.map_or("not set", |src| src.label())
+                ),
+            );
+            add(
+                m,
+                MF_STRING
+                    | if win::startup_enabled() {
+                        MF_CHECKED
+                    } else {
+                        0
+                    },
+                ID_STARTUP,
+                "Start with Windows",
+            );
             add(m, MF_STRING, ID_CONFIG, "Open config folder");
             sep(m);
             add(m, MF_STRING, ID_EXIT, "Exit");
@@ -426,7 +550,11 @@ impl App {
             ID_TOKEN => self.edit_token(),
             ID_STARTUP => {
                 if !win::set_startup(!win::startup_enabled()) {
-                    win::message_box(null_mut(), "Could not change the startup setting.", MB_ICONWARNING);
+                    win::message_box(
+                        null_mut(),
+                        "Could not change the startup setting.",
+                        MB_ICONWARNING,
+                    );
                 }
             }
             ID_CONFIG => {
@@ -463,7 +591,9 @@ impl App {
 
     fn repo_action(&self, name: &str, action: u32) {
         let mut s = lock(&self.shared);
-        let Some(idx) = s.config.find(name) else { return };
+        let Some(idx) = s.config.find(name) else {
+            return;
+        };
         match action {
             A_STABLE | A_PRE | A_COMMITS => {
                 let mode = [Mode::Stable, Mode::Prerelease, Mode::Commits][action as usize];
@@ -478,14 +608,20 @@ impl App {
                 }
             }
             A_LATEST => {
-                if let Some(seen) = s.config.repos[idx].state.as_ref().and_then(|st| st.seen.as_ref()) {
+                if let Some(seen) = s.config.repos[idx]
+                    .state
+                    .as_ref()
+                    .and_then(|st| st.seen.as_ref())
+                {
                     win::open_url(&seen.url);
                 }
             }
             A_OPEN => {
                 let r = &s.config.repos[idx];
                 let url = match (r.mode, &r.branch) {
-                    (Mode::Commits, Some(b)) => format!("https://github.com/{}/commits/{b}", r.repo),
+                    (Mode::Commits, Some(b)) => {
+                        format!("https://github.com/{}/commits/{b}", r.repo)
+                    }
                     (Mode::Commits, None) => format!("https://github.com/{}/commits", r.repo),
                     _ => format!("https://github.com/{}/releases", r.repo),
                 };
@@ -497,13 +633,19 @@ impl App {
             }
             A_REMOVE => {
                 drop(s);
-                let ok = win::message_box(null_mut(), &format!("Stop watching {name}?"), MB_YESNO | MB_ICONQUESTION) == IDYES;
+                let ok = win::message_box(
+                    null_mut(),
+                    &format!("Stop watching {name}?"),
+                    MB_YESNO | MB_ICONQUESTION,
+                ) == IDYES;
                 if ok {
                     let mut s = lock(&self.shared);
                     if let Some(i) = s.config.find(name) {
                         s.config.repos.remove(i);
                     }
-                    s.config.pending.retain(|p| !p.repo.eq_ignore_ascii_case(name));
+                    s.config
+                        .pending
+                        .retain(|p| !p.repo.eq_ignore_ascii_case(name));
                     s.errors.remove(&name.to_ascii_lowercase());
                     s.save();
                     drop(s);
@@ -514,7 +656,10 @@ impl App {
         }
     }
 
-    fn validator(&self, adding: bool) -> impl FnMut(&RepoForm) -> Result<RepoForm, String> + 'static {
+    fn validator(
+        &self,
+        adding: bool,
+    ) -> impl FnMut(&RepoForm) -> Result<RepoForm, String> + 'static {
         let (shared, client) = (self.shared.clone(), self.client.clone());
         move |f| validate_repo(&shared, &client, f, adding)
     }
@@ -528,19 +673,28 @@ impl App {
                 ApiError::NotFound => "repository not found".to_owned(),
                 e => e.to_string(),
             })?;
-            let list = client.branches(token, &info.full_name, &info.default_branch).map_err(|e| e.to_string())?;
+            let list = client
+                .branches(token, &info.full_name, &info.default_branch)
+                .map_err(|e| e.to_string())?;
             Ok((info.default_branch, list))
         })
     }
 
     fn add_repo(&self) {
-        let Some(f) = dialog::repo_dialog(None, self.branch_fetcher(), self.validator(true)) else { return };
+        let Some(f) = dialog::repo_dialog(None, self.branch_fetcher(), self.validator(true)) else {
+            return;
+        };
         {
             let mut s = lock(&self.shared);
             if s.config.find(&f.repo).is_some() {
                 return;
             }
-            s.config.repos.push(Repo { repo: f.repo, mode: f.mode, branch: f.branch, state: None });
+            s.config.repos.push(Repo {
+                repo: f.repo,
+                mode: f.mode,
+                branch: f.branch,
+                state: None,
+            });
             s.save();
         }
         self.refresh();
@@ -552,9 +706,17 @@ impl App {
             let s = lock(&self.shared);
             let Some(i) = s.config.find(name) else { return };
             let r = &s.config.repos[i];
-            RepoForm { repo: r.repo.clone(), mode: r.mode, branch: r.branch.clone() }
+            RepoForm {
+                repo: r.repo.clone(),
+                mode: r.mode,
+                branch: r.branch.clone(),
+            }
         };
-        let Some(f) = dialog::repo_dialog(Some(&initial), self.branch_fetcher(), self.validator(false)) else { return };
+        let Some(f) =
+            dialog::repo_dialog(Some(&initial), self.branch_fetcher(), self.validator(false))
+        else {
+            return;
+        };
         let mut s = lock(&self.shared);
         let Some(i) = s.config.find(name) else { return };
         let r = &mut s.config.repos[i];
@@ -586,7 +748,11 @@ impl App {
         match res {
             Some(TokenAction::Set(t)) => {
                 if !win::token_write(&t) {
-                    win::message_box(null_mut(), "Could not save the token to Credential Manager; it will be used until exit.", MB_ICONWARNING);
+                    win::message_box(
+                        null_mut(),
+                        "Could not save the token to Credential Manager; it will be used until exit.",
+                        MB_ICONWARNING,
+                    );
                 }
                 let mut s = lock(&self.shared);
                 (s.token, s.token_source) = (Some(t), Some(crate::auth::Source::Saved));
@@ -617,29 +783,48 @@ impl App {
 
 /// Resolves user input to a canonical repo/branch, hitting the API. Runs on the UI thread
 /// inside the dialog (with a wait cursor); requests time out after 20 s.
-fn validate_repo(shared: &Mutex<Shared>, client: &Client, form: &RepoForm, adding: bool) -> Result<RepoForm, String> {
-    let name = github::parse_repo(&form.repo).ok_or("Enter a repository as owner/name, or paste its GitHub URL.")?;
+fn validate_repo(
+    shared: &Mutex<Shared>,
+    client: &Client,
+    form: &RepoForm,
+    adding: bool,
+) -> Result<RepoForm, String> {
+    let name = github::parse_repo(&form.repo)
+        .ok_or("Enter a repository as owner/name, or paste its GitHub URL.")?;
     let token = lock(shared).token.clone();
     let token = token.as_deref();
     let api_err = |e: ApiError| match e {
-        ApiError::RateLimited(t) => format!("GitHub rate limit reached. Try again after {}, or set a token.", win::local_hhmm(t)),
+        ApiError::RateLimited(t) => format!(
+            "GitHub rate limit reached. Try again after {}, or set a token.",
+            win::local_hhmm(t)
+        ),
         e => format!("Could not reach GitHub: {e}"),
     };
     let info = client.repo_info(token, &name).map_err(|e| match e {
-        ApiError::NotFound => format!("{name} was not found. Private repositories need a token with access to them."),
+        ApiError::NotFound => {
+            format!("{name} was not found. Private repositories need a token with access to them.")
+        }
         e => api_err(e),
     })?;
     if adding && lock(shared).config.find(&info.full_name).is_some() {
         return Err(format!("{} is already in the list.", info.full_name));
     }
     let branch = match &form.branch {
-        Some(b) if form.mode == Mode::Commits => match client.branch_exists(token, &info.full_name, b) {
-            Ok(true) => b.clone(),
-            Ok(false) => return Err(format!("{} has no branch named \"{b}\".", info.full_name)),
-            Err(e) => return Err(api_err(e)),
-        },
+        Some(b) if form.mode == Mode::Commits => {
+            match client.branch_exists(token, &info.full_name, b) {
+                Ok(true) => b.clone(),
+                Ok(false) => {
+                    return Err(format!("{} has no branch named \"{b}\".", info.full_name));
+                }
+                Err(e) => return Err(api_err(e)),
+            }
+        }
         Some(b) => b.clone(),
         None => info.default_branch,
     };
-    Ok(RepoForm { repo: info.full_name, mode: form.mode, branch: Some(branch) })
+    Ok(RepoForm {
+        repo: info.full_name,
+        mode: form.mode,
+        branch: Some(branch),
+    })
 }

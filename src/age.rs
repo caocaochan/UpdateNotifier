@@ -6,7 +6,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Parses GitHub's UTC timestamps ("2026-11-09T20:53:12Z") to Unix seconds.
 pub fn parse_utc(s: &str) -> Option<i64> {
     let b = s.as_bytes();
-    if b.len() < 19 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' {
+    if b.len() < 19
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+    {
         return None;
     }
     let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
@@ -32,7 +38,13 @@ pub fn short(secs: i64) -> String {
     let mins = secs / 60;
     let hours = mins / 60;
     let days = hours / 24;
-    let two = |a: i64, ua: &str, b: i64, ub: &str| if b > 0 { format!("{a}{ua} {b}{ub}") } else { format!("{a}{ua}") };
+    let two = |a: i64, ua: &str, b: i64, ub: &str| {
+        if b > 0 {
+            format!("{a}{ua} {b}{ub}")
+        } else {
+            format!("{a}{ua}")
+        }
+    };
     match () {
         _ if mins < 1 => "now".into(),
         _ if hours < 1 => format!("{mins}m"),

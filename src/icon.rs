@@ -53,8 +53,10 @@ pub fn make(size: i32, badge: bool) -> HICON {
                 let a = hits / (SS * SS) as f32;
                 // Icons use straight (non-premultiplied) alpha.
                 let (r, g, b) = (r / hits, g / hits, b / hits);
-                px[(y * size + x) as usize] =
-                    ((a * 255.0).round() as u32) << 24 | (r as u32) << 16 | (g as u32) << 8 | b as u32;
+                px[(y * size + x) as usize] = ((a * 255.0).round() as u32) << 24
+                    | (r as u32) << 16
+                    | (g as u32) << 8
+                    | b as u32;
             }
         }
     }
@@ -78,7 +80,13 @@ pub fn make(size: i32, badge: bool) -> HICON {
         // Monochrome mask rows are WORD-aligned; all-zero = use the alpha channel.
         let mask_bits = vec![0u8; (((size + 15) / 16) * 2 * size) as usize];
         let mask = CreateBitmap(size, size, 1, 1, mask_bits.as_ptr().cast());
-        let info = ICONINFO { fIcon: 1, xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
+        let info = ICONINFO {
+            fIcon: 1,
+            xHotspot: 0,
+            yHotspot: 0,
+            hbmMask: mask,
+            hbmColor: color,
+        };
         let icon = CreateIconIndirect(&info);
         DeleteObject(color);
         DeleteObject(mask);
